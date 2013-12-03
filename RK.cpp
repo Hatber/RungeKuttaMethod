@@ -107,7 +107,7 @@ void EulerMethod::GetSolution(ostream &stream) {
         } while(Recalc);
 
         CurrentStep+=DeltaStep;
-        stream << NextValue << " " << CurrentStep << endl;
+        stream << NextValue << " " << CurrentStep << " " << DeltaStep << endl;
 
         CurrentValue = NextValue;
     }
@@ -137,21 +137,160 @@ void EulerMethod::PrintStatistic() {
     cout << "\t" << "LastDelta: " << DeltaStep << endl << endl;
 }
 
-const double DeltaX = 0.0001;  //Шаг по координате
-const double StartX = 0;
-const double DestinationX = 2;
-const double Epsilon = 0.0001;
+class MersonMethod : public RungeKuttaMethod
+{
+public:
+    int MakeStep();
+    void GetSolution(ostream &stream);
+
+    MersonMethod(const double StartStep, const double EndStep, double DeltaStep,
+           const double Epsilon,
+           DifferentialFunction TargetFunction);
+
+    void PrintStatistic();
+
+private:
+    double CalculatingDeltaStep(bool &Recalc);
+
+    double k1, k2, k3, k4, k5; //Этапы вычисления по Мерсону
+
+    double CurrentValue, NextValue;
+
+    int StepCount;
+    int Low, High;
+};
+
+MersonMethod::MersonMethod(const double StartStep, const double EndStep, double DeltaStep,
+               const double Epsilon,
+               DifferentialFunction TargetFunction)
+    : RungeKuttaMethod(StartStep, EndStep, DeltaStep, Epsilon, TargetFunction)
+{
+    CurrentValue = 1;
+    StepCount = 0;
+    Low = 0;
+    High = 0;
+}
+
+int MersonMethod::MakeStep() {
+    int StepStatus = 0;
+
+    if((CurrentStep + DeltaStep) >= EndStep) {
+            DeltaStep = EndStep - CurrentStep;
+            StepStatus = CalculationNotRequired;
+    }
+
+    k1 = 1./3 * DeltaStep * TargetFunction(CurrentStep,                    CurrentValue,                            DeltaStep);
+    k2 = 1./3 * DeltaStep * TargetFunction(CurrentStep + 1./3 * DeltaStep, CurrentValue + k1,                       DeltaStep);
+    k3 = 1./3 * DeltaStep * TargetFunction(CurrentStep + 1./3 * DeltaStep, CurrentValue + 1./2*k1 + 1./2*k2,        DeltaStep);
+    k4 = 1./3 * DeltaStep * TargetFunction(CurrentStep + 1./2 * DeltaStep, CurrentValue + 3./8*k1 + 9./8*k3,        DeltaStep);
+    k5 = 1./3 * DeltaStep * TargetFunction(CurrentStep +        DeltaStep, CurrentValue + 3./2*k1 - 9./2*k3 + 6*k4, DeltaStep);
+
+    NextValue = CurrentValue + 1./2*(k1 + 4*k4 + k5);
+
+    StepCount++;
+
+    return StepStatus;
+}
+
+void MersonMethod::GetSolution(ostream &stream) {
+    double NewDeltaStep;
+    bool Recalc = false;
+
+    stream << CurrentValue << " " << CurrentStep - DeltaStep << endl;
+
+    while(true) {
+        do {
+            if(MakeStep() == CalculationNotRequired) {
+                stream << NextValue << " " << CurrentStep + DeltaStep << endl;
+                return;
+            }
+
+            NewDeltaStep = CalculatingDeltaStep(Recalc);
+            DeltaStep = NewDeltaStep;
+        } while(Recalc);
+
+        CurrentStep+=DeltaStep;
+        stream << NextValue << " " << CurrentStep << " " << DeltaStep << endl;
+
+        CurrentValue = NextValue;
+    }
+}
+
+double MersonMethod::CalculatingDeltaStep(bool &Recalc) {
+    //double Sigma = k1 - (9./2)*k3 + 4*k4 - (1./2)*k5; //Погрешность метода
+    //double Sigma = 1.0/30.0*(2*k1-9*k3+8.0*k4-k5);
+    double Sigma = 0.2*DeltaStep*(NextValue - CurrentValue);
+    Sigma = fabs(Sigma);
+    //cout << Sigma << endl;
+
+    if(Sigma > Epsilon*5) {
+        Low++;
+        Recalc = true;
+        return DeltaStep/2;
+    } else if(Sigma < 5./32*Epsilon){
+        Recalc = false;
+        High++;
+        return DeltaStep*2;
+    } else {
+        Recalc = false;
+        return DeltaStep;
+    }
+
+    //return DeltaStep*=pow(Epsilon/Sigma, 1.0/6.0);
+}
+
+
+void MersonMethod::PrintStatistic() {
+    cout << "StepCount: " << StepCount << endl;
+    cout << "\t" << "LOW: " << Low << "" << endl;
+    cout << "\t" << "HIGH: " << High << "" << endl;
+    cout << "\t" << "Result: " << CurrentValue << endl;
+    cout << "\t" << "LastDelta: " << DeltaStep << endl << endl;
+}
+
+const double alpha = 0.6; //Коэффициент вовлечения воздуха из приземного слоя атмосферы в термик
+const double betta = 0.6; //Коэффициент вовлечения продуктов горения в термик (0..1);
+
+double BurningRate = 1; //скорость горения лесных горючих материалов (ЛГМ) [кг/с];
+
+double M; //Масса термика
+double W; //Скорость термика
+double T; //Температура термика
 
 double TestFunction(double CurrentStep, double CurrentValue, double DeltaStep) {
     return pow(CurrentStep, 3) - CurrentValue;
 }
 
-int main() {
-    ofstream Test("Test.txt");
+double ThermalMass(double CurrentStep, double CurrentValue, double DeltaStep) {
+    return alpha*CurrentValue*W + betta*BurningRate;
+}
 
-    EulerMethod EM(StartX, DestinationX, DeltaX, Epsilon, TestFunction);
-    EM.GetSolution(Test);
+double ThermalSpeed(double CurrentStep, double CurrentValue, double DeltaStep) {
+    return 1.0;
+}
+
+double ThermalTemperature(double CurrentStep, double CurrentValue, double DeltaStep) {
+    return 1.0;
+}
+
+int main() {
+    const double DeltaX = 0.01;  //Шаг по координате
+    const double StartX = 0;
+    const double DestinationX = 20;
+    const double Epsilon = 0.0001;
+
+    //Задание начальных условий
+
+    ofstream Euler("Euler.txt");
+    ofstream Merson("Merson.txt");
+
+    EulerMethod EM(StartX, DestinationX, DeltaX, Epsilon, ThermalMass);
+    EM.GetSolution(Euler);
     EM.PrintStatistic();
+
+    MersonMethod MM(StartX, DestinationX, DeltaX, Epsilon, ThermalMass);
+    MM.GetSolution(Merson);
+    MM.PrintStatistic();
 
     return 0;
 }
