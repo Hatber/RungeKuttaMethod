@@ -137,14 +137,34 @@ void EulerMethod::PrintStatistic() {
     cout << "\t" << "LastDelta: " << DeltaStep << endl << endl;
 }
 
+
+
+
+
+
+
+
+
+
+
 class MersonMethod : public RungeKuttaMethod
 {
 public:
     int MakeStep();
     void GetSolution(ostream &stream);
 
+    double GetCurrentValue() {
+        return CurrentValue;
+    }
+
+    void ConfirmStep() {
+        CurrentStep += DeltaStep;
+        CurrentValue = NextValue;
+    }
+
     MersonMethod(const double StartStep, const double EndStep, double DeltaStep,
            const double Epsilon,
+           const double StartCondition,
            DifferentialFunction TargetFunction);
 
     void PrintStatistic();
@@ -162,10 +182,11 @@ private:
 
 MersonMethod::MersonMethod(const double StartStep, const double EndStep, double DeltaStep,
                const double Epsilon,
+               const double StartCondition,
                DifferentialFunction TargetFunction)
-    : RungeKuttaMethod(StartStep, EndStep, DeltaStep, Epsilon, TargetFunction)
+    : RungeKuttaMethod(StartStep, EndStep, DeltaStep, Epsilon, TargetFunction),
+      CurrentValue(StartCondition)
 {
-    CurrentValue = 323;
     StepCount = 0;
     Low = 0;
     High = 0;
@@ -296,7 +317,7 @@ double ThermalTemperature(double CurrentStep, double CurrentValue, double DeltaS
 int main() {
     const double DeltaX = 0.001;  //Шаг по координате
     const double StartX = 0;
-    const double DestinationX = 10;
+    const double DestinationX = 1;
     const double Epsilon = 0.0001;
 
     //Задание начальных условий
@@ -309,16 +330,42 @@ int main() {
     T = 323;
     cout << "Start Thermal Temperature: " << T << endl;
 
-    ofstream Euler("Euler.txt");
-    ofstream Merson("Merson.txt");
+    //ofstream Euler("Euler.txt");
+    ofstream MASS("MASS.txt");
+    ofstream SPEED("SPEED.txt");
+    ofstream TEMPERATURE("TEMPERATURE.txt");
+    ofstream ALL("ALL.txt");
 
     //EulerMethod EM(StartX, DestinationX, DeltaX, Epsilon, ThermalMass);
     //EM.GetSolution(Euler);
     //EM.PrintStatistic();
 
-    MersonMethod MM(StartX, DestinationX, DeltaX, Epsilon, ThermalTemperature);
-    MM.GetSolution(Merson);
-    MM.PrintStatistic();
+    MersonMethod MM(StartX, DestinationX, DeltaX, Epsilon, M, ThermalMass);
+    MersonMethod MS(StartX, DestinationX, DeltaX, Epsilon, W, ThermalSpeed);
+    MersonMethod MT(StartX, DestinationX, DeltaX, Epsilon, T, ThermalTemperature);
+
+    int endStatus;
+    while(!endStatus) {
+        endStatus = 0;
+
+        endStatus |= MM.MakeStep();
+        endStatus |= MS.MakeStep();
+        endStatus |= MT.MakeStep();
+
+        MM.ConfirmStep();
+        MS.ConfirmStep();
+        MT.ConfirmStep();
+
+        M = MM.GetCurrentValue();
+        W = MS.GetCurrentValue();
+        T = MT.GetCurrentValue();
+
+        ALL << M << "\t" << W << "\t" << T << endl;
+    }
+
+    cout << "End Thermal Mass: " << M << endl;
+    cout << "End Thermal Speed: " << W << endl;
+    cout << "End Thermal Temperature: " << T << endl;
 
     return 0;
 }
