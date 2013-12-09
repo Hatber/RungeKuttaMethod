@@ -141,12 +141,6 @@ void EulerMethod::PrintStatistic() {
 
 
 
-
-
-
-
-
-
 class MersonMethod : public RungeKuttaMethod
 {
 public:
@@ -157,9 +151,17 @@ public:
         return CurrentValue;
     }
 
+    double GetCurrentStep() {
+        return CurrentStep;
+    }
+
     void ConfirmStep() {
         CurrentStep += DeltaStep;
         CurrentValue = NextValue;
+    }
+
+    void SetDeltaStep(double DeltaStep) {
+        this->DeltaStep = DeltaStep;
     }
 
     MersonMethod(const double StartStep, const double EndStep, double DeltaStep,
@@ -167,11 +169,11 @@ public:
            const double StartCondition,
            DifferentialFunction TargetFunction);
 
+    double CalculatingDeltaStep(bool &Recalc);
+
     void PrintStatistic();
 
 private:
-    double CalculatingDeltaStep(bool &Recalc);
-
     double k1, k2, k3, k4, k5; //Этапы вычисления по Мерсону
 
     double CurrentValue, NextValue;
@@ -244,8 +246,6 @@ double MersonMethod::CalculatingDeltaStep(bool &Recalc) {
     Sigma = fabs(Sigma);
     //cout << Sigma << endl;
 
-    return DeltaStep;
-
     if(Sigma > Epsilon*5) {
         Low++;
         Recalc = true;
@@ -315,9 +315,9 @@ double ThermalTemperature(double CurrentStep, double CurrentValue, double DeltaS
 }
 
 int main() {
-    const double DeltaX = 0.001;  //Шаг по координате
+    const double DeltaX = 0.0001;  //Шаг по координате
     const double StartX = 0;
-    const double DestinationX = 1;
+    const double DestinationX = 6;
     const double Epsilon = 0.0001;
 
     //Задание начальных условий
@@ -345,12 +345,36 @@ int main() {
     MersonMethod MT(StartX, DestinationX, DeltaX, Epsilon, T, ThermalTemperature);
 
     int endStatus;
+    bool Recalc[3] = {false};
+    double RecommendDeltaStep[3];
+    double NewDeltaStep;
+
+    size_t StepCounter = 0;
+    size_t AllStepCounter = 0;
+
     while(!endStatus) {
         endStatus = 0;
+        AllStepCounter++;
 
         endStatus |= MM.MakeStep();
         endStatus |= MS.MakeStep();
         endStatus |= MT.MakeStep();
+
+        RecommendDeltaStep[0] = MM.CalculatingDeltaStep(Recalc[0]);
+        RecommendDeltaStep[1] = MS.CalculatingDeltaStep(Recalc[1]);
+        RecommendDeltaStep[2] = MT.CalculatingDeltaStep(Recalc[2]);
+
+        NewDeltaStep = min(RecommendDeltaStep[0], min(RecommendDeltaStep[1], RecommendDeltaStep[2]));
+
+        MM.SetDeltaStep(NewDeltaStep);
+        MS.SetDeltaStep(NewDeltaStep);
+        MT.SetDeltaStep(NewDeltaStep);
+
+        if(Recalc[0] || Recalc[1] || Recalc[2]) {
+            continue;
+        }
+
+
 
         MM.ConfirmStep();
         MS.ConfirmStep();
@@ -361,11 +385,19 @@ int main() {
         T = MT.GetCurrentValue();
 
         ALL << M << "\t" << W << "\t" << T << endl;
+
+        MASS         << M << " " << MM.GetCurrentStep()*1000 << endl;
+        SPEED        << W << " " << MS.GetCurrentStep()*1000 << endl;
+        TEMPERATURE  << T << " " << MT.GetCurrentStep()*1000 << endl;
+        StepCounter++;
     }
 
+    cout << endl;
     cout << "End Thermal Mass: " << M << endl;
     cout << "End Thermal Speed: " << W << endl;
     cout << "End Thermal Temperature: " << T << endl;
+
+    cout << endl << "StepCounter: " << StepCounter << "\t" << "AllStepCounter: " << AllStepCounter << endl;
 
     return 0;
 }
