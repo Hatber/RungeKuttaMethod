@@ -1,276 +1,194 @@
-#include <iostream>
-#include <iomanip>
-#include <math.h>
+#include <iostream> //Консольный вывод
+#include <math.h>   //Мат. функции: возведение в степень, корни и т.д.
 
-#include <ostream>
-#include <fstream>
+#include <ostream> //Потоковая запись
+#include <fstream> //Запись в файл
 
 using namespace std;
 
-
+//*** Возвращается методом "int MakeStep()" когда вычисления законченны
 const int CalculationNotRequired = 1;
 
-typedef double(*DifferentialFunction)(double CurrentStep, double CurrentValue, double DeltaStep);
+//*** Прототип для дифференциальных уравнений
+typedef double(*DifferentialFunction)(double CurrentStep, double CurrentValue);
 
+/********************************************
+ *  RungeKuttaMethod  -  виртуальный класс. *
+ *  Он описывает интерфейс к  Явным методам *
+ *  Рунге  -  Кутты  произвольного  порядка *
+ *  точности.                               *
+ *                                          *
+ *  Для этого необходимы реализация методов *
+ *  MakeStep() и  CalculatingDeltaStep()  в *
+ *  производных классах.                    *
+ *                                          *
+ *  Также  он  реализует  шаблонный   метод *
+ *  GetSolution(),   позволяющий   получить *
+ *  решение  одного  ДифУр'a  полностью,  с *
+ *  записью результатов в поток.            *
+ ********************************************/
 class RungeKuttaMethod {
 public:
     virtual int MakeStep() = 0;
-    virtual void GetSolution(ostream &stream) = 0;
-
-    RungeKuttaMethod(const double StartStep, const double EndStep, double DeltaStep,
-                     const double Epsilon,
-                     DifferentialFunction TargetFunction);
-
-protected:
     virtual double CalculatingDeltaStep(bool &Recalc) = 0;
 
+    RungeKuttaMethod(const double StartStep, const double EndStep, double DeltaStep,
+                     const double Epsilon, const double StartCondition,
+                     DifferentialFunction TargetFunction):
+        StartStep(StartStep), EndStep(EndStep), DeltaStep(DeltaStep),
+        CurrentStep(StartStep + DeltaStep), Epsilon(Epsilon), CurrentValue(StartCondition),
+        TargetFunction(TargetFunction) { };
+
+    void GetSolution(ostream &stream) {
+        double NewDeltaStep;
+        bool Recalc = false;
+
+        stream << CurrentValue << " " << CurrentStep - DeltaStep << endl;
+
+        while(true) {
+            do {
+                if(MakeStep() == CalculationNotRequired) {
+                    stream << NextValue << " " << CurrentStep + DeltaStep << endl;
+                    return;
+                }
+
+                NewDeltaStep = CalculatingDeltaStep(Recalc);
+                DeltaStep = NewDeltaStep;
+            } while(Recalc);
+
+            CurrentStep+=DeltaStep;
+            stream << NextValue << " " << CurrentStep << " " << DeltaStep << endl;
+
+            CurrentValue = NextValue;
+        }
+    }
+
+    //** Текущее значение
+    double GetCurrentValue() {
+        return CurrentValue;
+    }
+
+    //** Пройденное растояние по временной координате
+    double GetCurrentStep() {
+        return CurrentStep;
+    }
+
+    //** Устанавливает новое значение шага по времени
+    void SetDeltaStep(double DeltaStep) {
+        this->DeltaStep = DeltaStep;
+    }
+
+    //** Подтвердить выполнение шага
+    void ConfirmStep() {
+        CurrentStep += DeltaStep;
+        CurrentValue = NextValue;
+    }
+
+protected:
     const double StartStep;
     const double EndStep;
     double DeltaStep;
     double CurrentStep;
     const double Epsilon; //Допустимая погрешность
 
+    double CurrentValue, NextValue;
+
     DifferentialFunction TargetFunction;
 };
-
-RungeKuttaMethod::RungeKuttaMethod(const double StartStep, const double EndStep, double DeltaStep,
-                                   const double Epsilon,
-                                   DifferentialFunction TargetFunction)
-        : StartStep(StartStep), EndStep(EndStep), DeltaStep(DeltaStep),
-          CurrentStep(StartStep + DeltaStep), Epsilon(Epsilon),
-          TargetFunction(TargetFunction) { }
-
-
 
 //Метод Рунге - Кутты первого порядка точности
 class EulerMethod : public RungeKuttaMethod
 {
 public:
-    int MakeStep();
-    void GetSolution(ostream &stream);
-
     EulerMethod(const double StartStep, const double EndStep, double DeltaStep,
-                     const double Epsilon,
-                     DifferentialFunction TargetFunction);
+                     const double Epsilon, const double StartCondition,
+                     DifferentialFunction TargetFunction) :
+        RungeKuttaMethod(StartStep, EndStep, DeltaStep, Epsilon, StartCondition, TargetFunction) { }
 
-    void PrintStatistic();
+    int MakeStep() {
+        int StepStatus = 0;
 
-private:
-    double CalculatingDeltaStep(bool &Recalc);
+        if((CurrentStep + DeltaStep) >= EndStep) {
+                DeltaStep = EndStep - CurrentStep;
+                StepStatus = CalculationNotRequired;
+        }
 
-    double CurrentValue, NextValue;
+        NextValue = CurrentValue + DeltaStep * TargetFunction(CurrentStep, CurrentValue);
 
-    int StepCount;
-    int Low, High;
+        return StepStatus;
+    }
+
+    double CalculatingDeltaStep(bool &Recalc) {
+        double Sigma = 0.5*DeltaStep*fabs(NextValue - CurrentValue); //Погрешность метода
+        double CorrectionStep = sqrt(Epsilon/Sigma);
+
+        if(CorrectionStep < 1) {
+            Recalc = true;
+        } else {
+            Recalc = false;
+        }
+
+        return CorrectionStep*DeltaStep/1.1;
+    }
 };
 
-EulerMethod::EulerMethod(const double StartStep, const double EndStep, double DeltaStep,
-                        const double Epsilon,
-                        DifferentialFunction TargetFunction)
-    : RungeKuttaMethod(StartStep, EndStep, DeltaStep, Epsilon, TargetFunction)
-{
-    CurrentValue = 1;
-    StepCount = 0;
-    Low = 0;
-    High = 0;
-}
-
-int EulerMethod::MakeStep() {
-    int StepStatus = 0;
-
-    if((CurrentStep + DeltaStep) >= EndStep) {
-            DeltaStep = EndStep - CurrentStep;
-            StepStatus = CalculationNotRequired;
-    }
-
-    NextValue = CurrentValue + DeltaStep * TargetFunction(CurrentStep, CurrentValue, DeltaStep);
-    StepCount++;
-
-    return StepStatus;
-}
-
-void EulerMethod::GetSolution(ostream &stream) {
-    double NewDeltaStep;
-    bool Recalc = false;
-
-    stream << CurrentValue << " " << CurrentStep - DeltaStep << endl;
-
-    while(true) {
-        do {
-            if(MakeStep() == CalculationNotRequired) {
-                stream << NextValue << " " << CurrentStep + DeltaStep << endl;
-                return;
-            }
-
-            NewDeltaStep = CalculatingDeltaStep(Recalc);
-            DeltaStep = NewDeltaStep;
-        } while(Recalc);
-
-        CurrentStep+=DeltaStep;
-        stream << NextValue << " " << CurrentStep << " " << DeltaStep << endl;
-
-        CurrentValue = NextValue;
-    }
-}
-
-double EulerMethod::CalculatingDeltaStep(bool &Recalc) {
-    double Sigma = 0.5*DeltaStep*fabs(NextValue - CurrentValue); //Погрешность метода
-    double CorrectionStep = sqrt(Epsilon/Sigma);
-
-    if(CorrectionStep < 1) {
-        Low++;
-        Recalc = true;
-    } else {
-        High++;
-        Recalc = false;
-    }
-
-    return CorrectionStep*DeltaStep/1.1;
-}
-
-
-void EulerMethod::PrintStatistic() {
-    cout << "StepCount: " << StepCount << endl;
-    cout << "\t" << "LOW: " << Low << "" << endl;
-    cout << "\t" << "HIGH: " << High << "" << endl;
-    cout << "\t" << "Result: " << CurrentValue << endl;
-    cout << "\t" << "LastDelta: " << DeltaStep << endl << endl;
-}
-
-
-
-
-
+//Метод Рунге - Кутты пятого порядка точности
 class MersonMethod : public RungeKuttaMethod
 {
 public:
-    int MakeStep();
-    void GetSolution(ostream &stream);
-
-    double GetCurrentValue() {
-        return CurrentValue;
-    }
-
-    double GetCurrentStep() {
-        return CurrentStep;
-    }
-
-    void ConfirmStep() {
-        CurrentStep += DeltaStep;
-        CurrentValue = NextValue;
-    }
-
-    void SetDeltaStep(double DeltaStep) {
-        this->DeltaStep = DeltaStep;
-    }
-
     MersonMethod(const double StartStep, const double EndStep, double DeltaStep,
            const double Epsilon,
            const double StartCondition,
-           DifferentialFunction TargetFunction);
+           DifferentialFunction TargetFunction) :
+        RungeKuttaMethod(StartStep, EndStep, DeltaStep, Epsilon, StartCondition, TargetFunction) { }
 
-    double CalculatingDeltaStep(bool &Recalc);
+    int MakeStep() {
+        int StepStatus = 0;
 
-    void PrintStatistic();
+        if((CurrentStep + DeltaStep) >= EndStep) {
+                DeltaStep = EndStep - CurrentStep;
+                StepStatus = CalculationNotRequired;
+        }
+
+        k1 = 1./3 * DeltaStep * TargetFunction(CurrentStep,                    CurrentValue);
+        k2 = 1./3 * DeltaStep * TargetFunction(CurrentStep + 1./3 * DeltaStep, CurrentValue + k1);
+        k3 = 1./3 * DeltaStep * TargetFunction(CurrentStep + 1./3 * DeltaStep, CurrentValue + 1./2*k1 + 1./2*k2);
+        k4 = 1./3 * DeltaStep * TargetFunction(CurrentStep + 1./2 * DeltaStep, CurrentValue + 3./8*k1 + 9./8*k3);
+        k5 = 1./3 * DeltaStep * TargetFunction(CurrentStep +        DeltaStep, CurrentValue + 3./2*k1 - 9./2*k3 + 6*k4);
+
+        NextValue = CurrentValue + 1./2*(k1 + 4*k4 + k5);
+
+        return StepStatus;
+    }
+
+    double CalculatingDeltaStep(bool &Recalc) {
+        //double Sigma = k1 - (9./2)*k3 + 4*k4 - (1./2)*k5; //Погрешность метода
+        //double Sigma = 1.0/30.0*(2*k1-9*k3+8.0*k4-k5);
+        double Sigma = 0.2*DeltaStep*(NextValue - CurrentValue);
+        Sigma = fabs(Sigma);
+
+        if(Sigma > Epsilon*5) {
+            Recalc = true;
+            return DeltaStep/2;
+        } else if(Sigma < 5./32*Epsilon){
+            Recalc = false;
+            return DeltaStep*2;
+        } else {
+            Recalc = false;
+            return DeltaStep;
+        }
+
+        //return DeltaStep*=pow(Epsilon/Sigma, 1.0/6.0);
+    }
 
 private:
     double k1, k2, k3, k4, k5; //Этапы вычисления по Мерсону
-
-    double CurrentValue, NextValue;
-
-    int StepCount;
-    int Low, High;
 };
 
-MersonMethod::MersonMethod(const double StartStep, const double EndStep, double DeltaStep,
-               const double Epsilon,
-               const double StartCondition,
-               DifferentialFunction TargetFunction)
-    : RungeKuttaMethod(StartStep, EndStep, DeltaStep, Epsilon, TargetFunction),
-      CurrentValue(StartCondition)
-{
-    StepCount = 0;
-    Low = 0;
-    High = 0;
-}
 
-int MersonMethod::MakeStep() {
-    int StepStatus = 0;
-
-    if((CurrentStep + DeltaStep) >= EndStep) {
-            DeltaStep = EndStep - CurrentStep;
-            StepStatus = CalculationNotRequired;
-    }
-
-    k1 = 1./3 * DeltaStep * TargetFunction(CurrentStep,                    CurrentValue,                            DeltaStep);
-    k2 = 1./3 * DeltaStep * TargetFunction(CurrentStep + 1./3 * DeltaStep, CurrentValue + k1,                       DeltaStep);
-    k3 = 1./3 * DeltaStep * TargetFunction(CurrentStep + 1./3 * DeltaStep, CurrentValue + 1./2*k1 + 1./2*k2,        DeltaStep);
-    k4 = 1./3 * DeltaStep * TargetFunction(CurrentStep + 1./2 * DeltaStep, CurrentValue + 3./8*k1 + 9./8*k3,        DeltaStep);
-    k5 = 1./3 * DeltaStep * TargetFunction(CurrentStep +        DeltaStep, CurrentValue + 3./2*k1 - 9./2*k3 + 6*k4, DeltaStep);
-
-    NextValue = CurrentValue + 1./2*(k1 + 4*k4 + k5);
-
-    StepCount++;
-
-    return StepStatus;
-}
-
-void MersonMethod::GetSolution(ostream &stream) {
-    double NewDeltaStep;
-    bool Recalc = false;
-
-    stream << CurrentValue << " " << CurrentStep - DeltaStep << endl;
-
-    while(true) {
-        do {
-            if(MakeStep() == CalculationNotRequired) {
-                stream << NextValue << " " << CurrentStep + DeltaStep << endl;
-                return;
-            }
-
-            NewDeltaStep = CalculatingDeltaStep(Recalc);
-            DeltaStep = NewDeltaStep;
-        } while(Recalc);
-
-        CurrentStep+=DeltaStep;
-        stream << NextValue << " " << CurrentStep << " " << DeltaStep << endl;
-
-        CurrentValue = NextValue;
-    }
-}
-
-double MersonMethod::CalculatingDeltaStep(bool &Recalc) {
-    //double Sigma = k1 - (9./2)*k3 + 4*k4 - (1./2)*k5; //Погрешность метода
-    //double Sigma = 1.0/30.0*(2*k1-9*k3+8.0*k4-k5);
-    double Sigma = 0.2*DeltaStep*(NextValue - CurrentValue);
-    Sigma = fabs(Sigma);
-    //cout << Sigma << endl;
-
-    if(Sigma > Epsilon*5) {
-        Low++;
-        Recalc = true;
-        return DeltaStep/2;
-    } else if(Sigma < 5./32*Epsilon){
-        Recalc = false;
-        High++;
-        return DeltaStep*2;
-    } else {
-        Recalc = false;
-        return DeltaStep;
-    }
-
-    //return DeltaStep*=pow(Epsilon/Sigma, 1.0/6.0);
-}
-
-
-void MersonMethod::PrintStatistic() {
-    cout << "StepCount: " << StepCount << endl;
-    cout << "\t" << "LOW: " << Low << "" << endl;
-    cout << "\t" << "HIGH: " << High << "" << endl;
-    cout << "\t" << "Result: " << CurrentValue << endl;
-    cout << "\t" << "LastDelta: " << DeltaStep << endl << endl;
-}
-
+/**
+ *  Собственно наша задача начинается отсюда
+ **/
 const double pi = 3.14159265359;
 const double g = 9.80665;
 
@@ -285,6 +203,8 @@ const double betta = 0.6; //Коэффициент вовлечения прод
 double BurningRate = 1; //скорость горения лесных горючих материалов (ЛГМ) [кг/с];
 
 double TemperatureEnviroment = 288;
+
+//*** Next is Magic ***//
 double Wg = 1;
 double Tg = 293;
 double cd = 1;
@@ -294,33 +214,35 @@ double M; //Масса термика
 double W; //Скорость термика
 double T = 323; //Температура термика
 
-double TestFunction(double CurrentStep, double CurrentValue, double DeltaStep) {
-    return pow(CurrentStep, 3) - CurrentValue;
-}
+//double Z; //Тут будет перемещение термика
 
-double ThermalMass(double CurrentStep, double CurrentValue, double DeltaStep) {
+
+double ThermalMass(double CurrentStep, double CurrentValue) {
     return alpha*CurrentValue*W + betta*BurningRate;
 }
 
-double ThermalSpeed(double CurrentStep, double CurrentValue, double DeltaStep) {
+double ThermalSpeed(double CurrentStep, double CurrentValue) {
     double Ro = PressureEnviroment/(AirUniversalGasConstant*T);
     return ((T - TemperatureEnviroment)*g)/TemperatureEnviroment +
            (betta*BurningRate*(Wg-CurrentValue))/M - alpha*CurrentValue*CurrentValue -
            ((pi*cd)/(2*M))*pow((3*M)/(4*pi), 2./3) * pow(Ro, 1./3) * CurrentValue*CurrentValue;
 }
 
-double ThermalTemperature(double CurrentStep, double CurrentValue, double DeltaStep) {
+double ThermalTemperature(double CurrentStep, double CurrentValue) {
     return ((BurningRate*betta)/M)*(Tg + TemperatureEnviroment - 2*CurrentValue) +
            (TemperatureEnviroment - CurrentValue)*alpha*W - (g*W*CurrentValue)/(cp*TemperatureEnviroment);
 }
 
+typedef MersonMethod RungeType;
+//typedef EulerMethod RungeType;
+
 int main() {
     const double DeltaX = 0.0001;  //Шаг по координате
     const double StartX = 0;
-    const double DestinationX = 6;
+    const double DestinationX = 3;
     const double Epsilon = 0.0001;
 
-    //Задание начальных условий
+    //** Задание начальных условий **//
     M = (pi*PressureEnviroment*(TreeCrownsHeight/2))/(6*AirUniversalGasConstant*323)*pow(TreeCrownsHeight, 3);
     cout << "Start Thermal Mass: " << M << endl;
 
@@ -330,19 +252,16 @@ int main() {
     T = 323;
     cout << "Start Thermal Temperature: " << T << endl;
 
-    //ofstream Euler("Euler.txt");
+    //** Сюда записываются результаты вычислений **//
     ofstream MASS("MASS.txt");
     ofstream SPEED("SPEED.txt");
     ofstream TEMPERATURE("TEMPERATURE.txt");
     ofstream ALL("ALL.txt");
 
-    //EulerMethod EM(StartX, DestinationX, DeltaX, Epsilon, ThermalMass);
-    //EM.GetSolution(Euler);
-    //EM.PrintStatistic();
-
-    MersonMethod MM(StartX, DestinationX, DeltaX, Epsilon, M, ThermalMass);
-    MersonMethod MS(StartX, DestinationX, DeltaX, Epsilon, W, ThermalSpeed);
-    MersonMethod MT(StartX, DestinationX, DeltaX, Epsilon, T, ThermalTemperature);
+    //** Всего у нас 3 дифура **//
+    RungeType MM(StartX, DestinationX, DeltaX, Epsilon, M, ThermalMass);
+    RungeType MS(StartX, DestinationX, DeltaX, Epsilon, W, ThermalSpeed);
+    RungeType MT(StartX, DestinationX, DeltaX, Epsilon, T, ThermalTemperature);
 
     int endStatus;
     bool Recalc[3] = {false};
@@ -352,6 +271,7 @@ int main() {
     size_t StepCounter = 0;
     size_t AllStepCounter = 0;
 
+    //*** Непосредственно счет **//
     while(!endStatus) {
         endStatus = 0;
         AllStepCounter++;
@@ -370,11 +290,11 @@ int main() {
         MS.SetDeltaStep(NewDeltaStep);
         MT.SetDeltaStep(NewDeltaStep);
 
+        //*** Необходимо, чтобы выполнялась заданная точность ***//
         if(Recalc[0] || Recalc[1] || Recalc[2]) {
+                cout << "FUS!" << endl;
             continue;
         }
-
-
 
         MM.ConfirmStep();
         MS.ConfirmStep();
