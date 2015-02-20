@@ -35,7 +35,7 @@ namespace RK {
                          DifferentialFunction TargetFunction):
             StartStep(StartStep), EndStep(EndStep), DeltaStep(DeltaStep),
             CurrentStep(StartStep + DeltaStep), Epsilon(Epsilon), CurrentValue(StartCondition),
-            TargetFunction(TargetFunction) { };
+            TargetFunction(TargetFunction) { }
 
         void GetSolution(ostream &stream) {
             double NewDeltaStep;
